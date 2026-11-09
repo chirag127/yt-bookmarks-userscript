@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         YT Bookmarks
 // @namespace    https://github.com/chirag127
-// @version      1.0.0
+// @version      1.0.1
 // @description  Named timestamps on any YouTube video, kept in synced storage. Click one to jump there, delete the ones you no longer need.
 // @author       chirag127
 // @license      MIT
 // @match        https://www.youtube.com/*
-// @require      https://raw.githubusercontent.com/chirag127/yt-core-lib/main/yt-core-lib-1.3.0.js
+// @require      https://raw.githubusercontent.com/chirag127/yt-core-lib/main/yt-core-lib-1.4.0.js
 // @downloadURL  https://raw.githubusercontent.com/chirag127/yt-bookmarks-userscript/main/yt-bookmarks.user.js
 // @updateURL    https://raw.githubusercontent.com/chirag127/yt-bookmarks-userscript/main/yt-bookmarks.user.js
 // @grant        GM_getValue

@@ -1,53 +1,59 @@
-# AGENTS.md — yt-bookmarks-userscript
+# AGENTS.md — YT Bookmarks
 
-Read the collection [`AGENTS.md`](../AGENTS.md) and [`PLAN.md`](../PLAN.md) first. Documentation
-lives once in the umbrella repo at `c:\ws\docs\okf\` — do not copy it here.
+Read the collection rules first: [`../AGENTS.md`](../AGENTS.md). Documentation lives once in
+`c:\ws\docs\okf\` — do not create an `okf/` copy here.
 
-## Rules for this script
+## What this repo is
 
-1. Requires `yt-core-lib`. Never copy storage, InnerTube or UI code here.
-2. **EXACTLY ONE context-menu entry**: `Settings…` calling `Ytk.openSettings({...})`. Adding,
-   seeking and deleting a bookmark are *actions*: they live on the toolbar and inside the panel.
-   The old toolkit had two bookmark menu entries; that is exactly what the one-entry rule bans.
-3. The action button comes from `Ytk.mountToolbar`. Never draw a bar or a floating widget, and do not
-   add markers onto the player's progress bar.
-4. No `innerHTML` — YouTube enforces Trusted Types and the throw is silent inside handlers.
-5. **Read-only towards YouTube.** The only write is its own bookmark key in GM storage.
-6. Storage is exactly `Ytk.storeSet('bm.' + videoId, [{ t, label }])` → `ytk.bm.<videoId>`, sorted by
-   `t`. Deleting the last bookmark is `Ytk.storeDel`, so an empty array never lingers.
-7. Gate on `Ytk.featureOn('bookmarks', true)` and return early when off; then guard on the page
-   (no `?v=` → return).
-8. Read `?v=` **at click time**, never cache it at boot: YouTube is an SPA and the toolbar is mounted
-   once per page load while the video id changes.
-9. Every delete re-reads the stored list and splices by the index the panel drew, so a note saved in
-   another tab cannot shift the deletion onto the wrong row.
+One userscript, one job: named timestamps on the video currently being watched, with jump and
+delete. The only YouTube surface it touches is the player's `currentTime`.
 
-## Verified DOM facts
+## Non-negotiables
 
-- Current video id: `new URLSearchParams(location.search).get('v')`.
-- Player position: `document.querySelector('video').currentTime`. Guard for a missing player — the
-  watch page renders before the element exists, and an ad video element is still a `video`.
-- Timestamps are stored in whole seconds; `currentTime` is a float and must be floored, or every
-  bookmark looks unique when compared.
+1. **Exactly one context-menu entry**, `Settings…`, calling `Ytk.openSettings` — nothing else.
+2. **No `innerHTML`.** The list is drawn with `Ytk.kv`, `Ytk.note` and `Ytk.h`.
+3. **Shared toolbar only:** `Ytk.mountToolbar([{ label: 'Bookmarks', run: openBookmarks }])`.
+4. **One storage key per video**: `ytk.bm.<videoId>` = `[{ t, label }]`. Empty list ⇒
+   `Ytk.storeDel`, never a stored empty array.
+5. **Seeking is the whole write surface.** `video.currentTime = t`; no `play()`, no playlist call,
+   no API call. There is no write endpoint in this script at all.
+6. **Core is required, pinned:** `@require …/yt-core-lib-1.3.0.js`. No core helper is
+   re-implemented — this script only adds time formatting, which the core does not have.
 
-## Known limitation
+## Why the code looks the way it does
 
-The panel refreshes itself after each add or delete, but not when the SPA changes video with the panel
-still open — close and reopen it, or press the toolbar button again.
+- **The video id is read fresh on every use**, never captured at boot. YouTube replaces the video
+  on an in-app navigation without reloading the page, so a cached id would silently save a bookmark
+  against the wrong video.
+- **`position` is carried through the sort.** Bookmarks are stored in insertion order; when
+  `bmSortByTime` sorts a copy for display, each entry keeps its original index so **Delete** still
+  removes the right one.
+- **Auto-labelling is a prompt default, not a silent guess.** With `bmAutoLabel` on, the dialog opens
+  pre-filled with the timestamp and a blank answer falls back to it; with it off, a blank answer is
+  refused with a toast instead of storing an unnamed row.
+- **Duplicates are replaced.** Adding at a second that already holds a bookmark overwrites it, so
+  pressing the button twice does not create two identical rows.
+- **`raw()`, not `Ytk.settings()`, for this script's own keys.** `Ytk.settings()` returns only the
+  core's own `DEFAULTS` keys, so `bmAutoLabel` and `bmSortByTime` are read from
+  `Ytk.storeGet('settings', {})`, and each field's `def` is seeded from that blob so the popup shows
+  the saved value instead of a hard-coded default.
+- **Settings survive because of `onSave`.** Core 1.3.0's save path rebuilds `ytk.settings` from the
+  core defaults and drops unknown keys; the `onSave` merge puts the two `bm*` keys back.
+- **Page guard is a URL test at `document-idle`.** The README states the consequence plainly: an
+  in-app navigation onto a watch page needs a reload for the toolbar to appear. Do not "fix" this by
+  dropping the guard — the collection rule requires one.
+- **The AI grants stay.** The settings popup renders the shared AI section, which calls
+  `GM_xmlhttpRequest`; without `@grant GM_xmlhttpRequest` + `@connect *` its test fails.
 
-## Not verified live
+## Verification before claiming a change works
 
-Seeking by `video.currentTime` and the optional `pause()` assume YouTube does not rewrite the position
-immediately afterwards (it does not in the old toolkit's testing, but that was not re-verified for
-this standalone script).
+```bash
+node --check yt-bookmarks.user.js
+grep -c "GM_registerMenuCommand('Settings…', settingsPopup);" yt-bookmarks.user.js   # 1
+grep -c "innerHTML" yt-bookmarks.user.js                                            # 0
+```
 
-## Shared toolbar caveat (core 1.2.0)
-
-Each userscript runs in its own sandbox, so the core's `toolbarEl` module state is **per script**.
-With several collection scripts installed, core 1.2.0 therefore draws one `.ytk2-bar` per script, all
-at `left:16px;bottom:16px` — they overlap and only the top one is clickable. Core **1.3.0** fixes it
-by reusing the bar already in the DOM (`toolbarEl = document.querySelector('.ytk2-bar')`).
-
-This repo pins the versioned `yt-core-lib-1.2.0.js` URL on purpose (immutable require, no surprise
-core changes). When the collection moves to 1.3.0 on `main`, bump the `@require` here in the same
-commit as the rest — do not point at the unversioned `yt-core-lib.js`.
+Then check it on a real video: add a bookmark at 0:30, jump away, click it back, reload and confirm
+it is still listed, toggle **List bookmarks in timestamp order** off and confirm the order follows
+insertion, then delete it and confirm the key is gone from storage. Static checks alone are not a
+live test.
